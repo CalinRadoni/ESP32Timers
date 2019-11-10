@@ -27,19 +27,26 @@ ESP32Timers timers;
 
 const uint8_t queueLength = 8;
 
-struct isrTimerInfo
-{
-    timer_group_t group;
-    timer_idx_t   index;
-    bool          single;
-};
+/**
+ * The standard clock is the 80 MHz APB clock.
+ * Using a divider of 80 the timers will be clocked with 1 MHz.
+ */
+const uint32_t clockTimerDivider = 80;
+
+// -----------------------------------------------------------------------------
 
 void IRAM_ATTR timer_ISR(void *param) {
-    isrTimerInfo* arg = (isrTimerInfo*) param;
-    if (arg == nullptr) return;
+    // retrieve the arguments
+    uint32_t arg = (uint32_t)param;
 
+    ESP32TimerEvent event;
+    event.group      = ((arg & 0x01) == 0) ? timer_group_t::TIMER_GROUP_0 : timer_group_t::TIMER_GROUP_1;
+    event.index      = ((arg & 0x02) == 0) ? timer_idx_t::TIMER_0 : timer_idx_t::TIMER_1;
+    bool singleShoot = ((arg & 0x04) == 0) ? false : true;
+
+    // find the physical timer group
     timg_dev_t *timerGroup = nullptr;
-    if (arg->group == timer_group_t::TIMER_GROUP_0) {
+    if (event.group == timer_group_t::TIMER_GROUP_0) {
         timerGroup = &TIMERG0;
     }
     else {
@@ -47,7 +54,7 @@ void IRAM_ATTR timer_ISR(void *param) {
     }
 
     // clear the interrupt status bit
-    if (arg->index == timer_idx_t::TIMER_0) {
+    if (event.index == timer_idx_t::TIMER_0) {
         timerGroup->int_clr_timers.t0 = 1;
     }
     else {
@@ -55,8 +62,8 @@ void IRAM_ATTR timer_ISR(void *param) {
     }
 
     // enable alarm if needed
-    if (!arg->single) {
-        if (arg->index == timer_idx_t::TIMER_0) {
+    if (!singleShoot) {
+        if (event.index == timer_idx_t::TIMER_0) {
             timerGroup->hw_timer[0].config.alarm_en = TIMER_ALARM_EN;
         }
         else {
@@ -64,11 +71,16 @@ void IRAM_ATTR timer_ISR(void *param) {
         }
     }
 
-    ESP32TimerEvent event;
-    event.group = arg->group;
-    event.index = arg->index;
-    if (timers.timerQueue != 0)
-        xQueueSendFromISR(timers.timerQueue, &event, NULL);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    // send an event to notify that alarm was triggered
+    if (timers.timerQueue != 0) {
+        xQueueSendToBackFromISR(timers.timerQueue, &event, &xHigherPriorityTaskWoken);
+    }
+
+    if (xHigherPriorityTaskWoken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -85,7 +97,7 @@ ESP32Timers::~ESP32Timers(void)
 
 bool ESP32Timers::Create(void)
 {
-    timerQueue = xQueueCreate(queueLength, sizeof(isrTimerInfo));
+    timerQueue = xQueueCreate(queueLength, sizeof(ESP32TimerEvent));
 
     return timerQueue == 0 ? false : true;
 }
@@ -103,31 +115,32 @@ void ESP32Timers::Destroy(void)
     }
 }
 
-void ESP32Timers::DestroyTimer(uint8_t group, uint8_t index)
+void ESP32Timers::DestroyTimer(uint8_t group8, uint8_t index8)
 {
-    isrTimerInfo arg;
-    arg.group = (timer_group_t) group;
-    arg.index = (timer_idx_t) index;
+    timer_group_t group = (timer_group_t) group8;
+    timer_idx_t   index = (timer_idx_t) index8;
 
-    if (arg.group >= timer_group_t::TIMER_GROUP_MAX) return;
-    if (arg.index >= timer_idx_t::TIMER_MAX) return;
+    if (group >= timer_group_t::TIMER_GROUP_MAX) return;
+    if (index >= timer_idx_t::TIMER_MAX) return;
 
-    timer_pause(arg.group, arg.index);
-    timer_disable_intr(arg.group, arg.index);
-    timer_set_alarm(arg.group, arg.index, timer_alarm_t::TIMER_ALARM_DIS);
+    timer_pause(group, index);
+    timer_disable_intr(group, index);
+    timer_set_alarm(group, index, timer_alarm_t::TIMER_ALARM_DIS);
 }
 
-bool ESP32Timers::CreateTimer(uint8_t group, uint8_t index, uint32_t periodMS, bool autoreload, bool singleShot)
+bool ESP32Timers::CreateTimer(uint8_t group8, uint8_t index8, uint32_t periodMS, bool autoreload, bool singleShot)
 {
-    DestroyTimer(group, index);
+    DestroyTimer(group8, index8);
 
-    isrTimerInfo arg;
-    arg.group  = (timer_group_t) group;
-    arg.index  = (timer_idx_t) index;
-    arg.single = singleShot;
+    timer_group_t group = (timer_group_t) group8;
+    timer_idx_t   index = (timer_idx_t) index8;
+    if (group >= timer_group_t::TIMER_GROUP_MAX) return false;
+    if (index >= timer_idx_t::TIMER_MAX) return false;
 
-    if (arg.group >= timer_group_t::TIMER_GROUP_MAX) return false;
-    if (arg.index >= timer_idx_t::TIMER_MAX) return false;
+    uint32_t arg = 0;
+    if (group == timer_group_t::TIMER_GROUP_1) arg |= 0x01;
+    if (index == timer_idx_t::TIMER_1)         arg |= 0x02;
+    if (singleShot)                            arg |= 0x04;
 
     timer_config_t config;
     config.alarm_en    = false;
@@ -135,31 +148,32 @@ bool ESP32Timers::CreateTimer(uint8_t group, uint8_t index, uint32_t periodMS, b
     config.intr_type   = timer_intr_mode_t::TIMER_INTR_LEVEL;
     config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
     config.auto_reload = autoreload ? timer_autoreload_t::TIMER_AUTORELOAD_EN : timer_autoreload_t::TIMER_AUTORELOAD_DIS;
-    config.divider     = 80; // 80 MHz / 80 -> 1 MHz timer clock
+    config.divider     = clockTimerDivider;
 
-    esp_err_t err = timer_init(arg.group, arg.index, &config);
+    esp_err_t err = timer_init(group, index, &config);
     if (err != ESP_OK) return false;
 
-    err = timer_set_counter_value(arg.group, arg.index, 0ULL);
+    err = timer_set_counter_value(group, index, 0x0ULL);
     if (err != ESP_OK) return false;
 
-    uint64_t alarmValue = periodMS;
-    alarmValue *= 80000;
-    alarmValue /= config.divider;
+    uint64_t alarmValue = TIMER_BASE_CLK;
+    alarmValue /= clockTimerDivider;
+    alarmValue /= 1000;
+    alarmValue *= periodMS;
 
-    err = timer_set_alarm_value(arg.group, arg.index, alarmValue);
+    err = timer_set_alarm_value(group, index, alarmValue);
     if (err != ESP_OK) return false;
 
-    err = timer_set_alarm(arg.group, arg.index, timer_alarm_t::TIMER_ALARM_EN);
+    err = timer_set_alarm(group, index, timer_alarm_t::TIMER_ALARM_EN);
     if (err != ESP_OK) return false;
 
-    err = timer_enable_intr(arg.group, arg.index);
+    err = timer_enable_intr(group, index);
     if (err != ESP_OK) return false;
 
-    err = timer_isr_register(arg.group, arg.index, timer_ISR, &arg, ESP_INTR_FLAG_IRAM, NULL);
+    err = timer_isr_register(group, index, timer_ISR, (void*)arg, ESP_INTR_FLAG_IRAM, NULL);
     if (err != ESP_OK) return false;
 
-    err = timer_start(arg.group, arg.index);
+    err = timer_start(group, index);
     if (err != ESP_OK) return false;
 
     return true;
