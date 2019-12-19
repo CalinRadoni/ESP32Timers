@@ -1,5 +1,7 @@
 # Helper component for ESP32 Timers
 
+[![Build Status](https://travis-ci.com/CalinRadoni/ESP32Timers.svg?branch=master)](https://travis-ci.com/CalinRadoni/ESP32Timers)
+
 ## Dependencies
 
 [Espressif IoT Development Framework](https://github.com/espressif/esp-idf).
