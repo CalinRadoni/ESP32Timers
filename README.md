@@ -1,6 +1,6 @@
 # Helper component for ESP32 Timers
 
-[![Build Status](https://travis-ci.com/CalinRadoni/ESP32Timers.svg?branch=master)](https://travis-ci.com/CalinRadoni/ESP32Timers)
+[![Build Status](https://travis-ci.com/CalinRadoni/ESP32Timers.svg?branch=main)](https://travis-ci.com/CalinRadoni/ESP32Timers)
 
 ## Dependencies
 
