@@ -115,10 +115,10 @@ void ESP32Timers::Destroy(void)
     }
 }
 
-void ESP32Timers::DestroyTimer(uint8_t group8, uint8_t index8)
+void ESP32Timers::DestroyTimer(uint8_t groupIn, uint8_t indexIn)
 {
-    timer_group_t group = (timer_group_t) group8;
-    timer_idx_t   index = (timer_idx_t) index8;
+    timer_group_t group = (timer_group_t) groupIn;
+    timer_idx_t   index = (timer_idx_t) indexIn;
 
     if (group >= timer_group_t::TIMER_GROUP_MAX) return;
     if (index >= timer_idx_t::TIMER_MAX) return;
@@ -126,14 +126,15 @@ void ESP32Timers::DestroyTimer(uint8_t group8, uint8_t index8)
     timer_pause(group, index);
     timer_disable_intr(group, index);
     timer_set_alarm(group, index, timer_alarm_t::TIMER_ALARM_DIS);
+    timer_deinit(group, index);
 }
 
-bool ESP32Timers::CreateTimer(uint8_t group8, uint8_t index8, uint32_t periodMS, bool autoreload, bool singleShot)
+bool ESP32Timers::CreateTimer(uint8_t groupIn, uint8_t indexIn, uint32_t periodMS, bool autoreload, bool singleShot)
 {
-    DestroyTimer(group8, index8);
+    DestroyTimer(groupIn, indexIn);
 
-    timer_group_t group = (timer_group_t) group8;
-    timer_idx_t   index = (timer_idx_t) index8;
+    timer_group_t group = (timer_group_t) groupIn;
+    timer_idx_t   index = (timer_idx_t) indexIn;
     if (group >= timer_group_t::TIMER_GROUP_MAX) return false;
     if (index >= timer_idx_t::TIMER_MAX) return false;
 
@@ -143,8 +144,8 @@ bool ESP32Timers::CreateTimer(uint8_t group8, uint8_t index8, uint32_t periodMS,
     if (singleShot)                            arg |= 0x04;
 
     timer_config_t config;
-    config.alarm_en    = false;
-    config.counter_en  = false;
+    config.alarm_en    = timer_alarm_t::TIMER_ALARM_DIS;
+    config.counter_en  = timer_start_t::TIMER_PAUSE;
     config.intr_type   = timer_intr_mode_t::TIMER_INTR_LEVEL;
     config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
     config.auto_reload = autoreload ? timer_autoreload_t::TIMER_AUTORELOAD_EN : timer_autoreload_t::TIMER_AUTORELOAD_DIS;

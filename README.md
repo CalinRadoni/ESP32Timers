@@ -4,7 +4,7 @@
 
 ## Dependencies
 
-[Espressif IoT Development Framework](https://github.com/espressif/esp-idf).
+This component was tested with [ESP-IDF](https://github.com/espressif/esp-idf) **v4.1**.
 
 ## Development Environment
 
