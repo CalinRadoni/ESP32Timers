@@ -5,8 +5,6 @@
 The project is archived because I have built another version in the [ESP32HAL](https://github.com/CalinRadoni/ESP32HAL) repository.
 That version uses FreeRTOS Task Notifications as light weight counting semaphores.
 
-[![Build Status](https://travis-ci.com/CalinRadoni/ESP32Timers.svg?branch=main)](https://travis-ci.com/CalinRadoni/ESP32Timers)
-
 ## Dependencies
 
 This component was tested with [ESP-IDF](https://github.com/espressif/esp-idf) **v4.1**.
